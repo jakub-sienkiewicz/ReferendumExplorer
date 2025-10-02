@@ -2,30 +2,27 @@
 
 Interactive exploration of Swiss federal referendum results at the canton level.
 
-The tool loads a PC-Axis dataset (`volksabstimmungen.px`) containing referendum outcomes, normalizes multilingual canton names, aggregates vote counts, and renders an interactive Tkinter + Matplotlib choropleth map colored by percentage of YES votes per canton.
+The application loads the PC-Axis dataset (`volksabstimmungen.px`), normalizes multilingual canton names, aggregates vote counts, and renders an interactive Tkinter + Matplotlib choropleth map colored by percentage of YES votes per canton. Missing data can be fetched automatically (GUI prompt or CLI auto-download).
 
 ![Screenshot of the application interface](Screenshot.png)
 
 ## Repository Structure
 
 ```
-Data/                     # Input data (PC-Axis and Swiss boundary shapefiles)
-Scripts/download_data.sh  # (Optional) Data fetch helper
-main.py                   # ETL + CLI / plotting utilities
-tk_app.py                 # Interactive GUI application
-Screenshot.png            # Example UI screenshot
+Data/                     # Downloaded PX + shapefiles (created on demand)
+data_setup.py             # Automatic download + presence checks
+Scripts/download_data.sh  # Legacy manual download script
+main.py                   # Core aggregation + CLI
+tk_app.py                 # Interactive GUI
+Screenshot.png            # UI screenshot
 README.md                 # This file
 ```
 
 ## Requirements
 
-Python 3.10+ (tested newer). Core dependencies:
+Python 3.10+, Core dependencies: pandas, geopandas, pyaxis, matplotlib, pyogrio.
 
-- pandas
-- geopandas
-- pyaxis
-- matplotlib
-
+Quick start:
 ```bash
 python -m venv venv
 source venv/bin/activate
@@ -33,13 +30,20 @@ pip install --upgrade pip
 pip install pandas geopandas pyaxis matplotlib pyogrio
 ```
 
-## Data Preparation
+## Data Handling / Automatic Download
 
-Place the following in `Data/` or simply run `Scripts/download_data.sh`:
+On first run we expect:
+- `Data/volksabstimmungen.px`
+- `Data/swissBOUNDARIES3D/swissBOUNDARIES3D_1_5_TLM_KANTONSGEBIET.shp`
 
-1. `volksabstimmungen.px` – PC-Axis file of Swiss referendum results (German language version used here).
-2. Swiss cantonal boundaries shapefile folder `swissBOUNDARIES3D` containing at least:
-	 - `swissBOUNDARIES3D_1_5_TLM_KANTONSGEBIET.shp` (and its associated component files: .dbf, .shx, .prj, etc.)
+If absent:
+- GUI: prompts to download (PX + boundaries zip) from official sources.
+- CLI: downloads automatically unless `--no-auto-download` is passed.
+
+Manual alternative:
+```bash
+bash Scripts/download_data.sh
+```
 
 ## Running the GUI
 
@@ -47,32 +51,47 @@ Place the following in `Data/` or simply run `Scripts/download_data.sh`:
 python tk_app.py
 ```
 
-Actions:
-- Select a referendum title from the left list (type to filter).
-- The map colors cantons by YES percentage (green = higher YES).
-- Export current view to GeoJSON via the button.
+Features:
+- Search box filters referendum titles instantly.
+- Selection renders canton YES% choropleth (0–100, RdYlGn).
+- Export GeoJSON (choose path) with YES/NO/TOTAL/YES_PCT.
+- Export PNG (choose path, 200 DPI) of current figure.
+- Refresh button invalidates cache for the selected title.
 
-## Command-Line Usage (Non-GUI)
+## Command-Line Usage
 
-Generate a static plot and GeoJSON for the first referendum:
-
+First referendum (auto export + plot):
 ```bash
 python main.py
 ```
 
+Filter by substring:
+```bash
+python main.py --filter "Abzockerei"
+```
+
+Select by index:
+```bash
+python main.py --index 42
+```
+
+Disable plot or export:
+```bash
+python main.py --no-draw --no-export
+```
+
+Disable auto-download:
+```bash
+python main.py --no-auto-download
+```
+
 ## Missing Canton Recovery (Heuristic)
 
-Some referendums may only list district or sub-aggregates for certain cantons. If enabled (`recover_missing=True`), the loader:
-- Searches sub-rows containing a prefix of the canton name (first 4 letters, accent stripped) for Ja/Nein rows.
-- Sums them to synthesize canton-level Ja / Nein totals.
-Disable this by passing `recover_missing=False` to `build_canton_votes` if you prefer strict raw completeness.
+If a canton-level Ja/Nein pair is missing but subordinate rows exist, a heuristic (default on) sums Ja/Nein rows whose cleaned area name contains the first four accent‑stripped letters of the canton name. Pass `recover_missing=False` to `build_canton_votes` to require explicit canton rows only.
 
-## Exported GeoJSON Schema
+## Exported GeoJSON Fields
 
-Properties (when available):
-- NAME
-- YES
-- NO
-- TOTAL
-- YES_PCT
-- geometry (MultiPolygon/Polygon)
+When present:
+- `NAME`
+- `YES`, `NO`, `TOTAL`, `YES_PCT`
+- `geometry` (Polygon / MultiPolygon)

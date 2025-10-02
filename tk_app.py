@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+from tkinter import filedialog
 from typing import Dict, List, Optional
 import threading
 
@@ -9,13 +10,13 @@ import geopandas as gpd
 import pandas as pd
 
 import main
-
+import data_setup
 
 class ReferendumExplorerApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Swiss Referendum Explorer")
-        self.root.geometry("1100x750")
+        self.root.geometry("1400x800")
 
         self.kantone_gdf: Optional[gpd.GeoDataFrame] = None
         self.raw_votes: Optional[pd.DataFrame] = None
@@ -24,23 +25,30 @@ class ReferendumExplorerApp:
         self._cbar = None
 
         self._build_layout()
-        self._load_data_async()
+        data_setup.ensure_data_tk(
+            self.root,
+            on_status=lambda msg: self.status_var.set(msg),
+            on_ready=self._load_data_async
+        )
 
     def _build_layout(self):
-        left = tk.Frame(self.root, width=320)
+        # Left control panel
+        left = tk.Frame(self.root, width=380)
         left.pack(side=tk.LEFT, fill=tk.Y)
         left.pack_propagate(False)
 
+        # Search bar
         search_frame = tk.Frame(left)
-        search_frame.pack(fill=tk.X, padx=6, pady=4)
+        search_frame.pack(fill=tk.X, padx=10, pady=(8, 6))
         tk.Label(search_frame, text="Search:").pack(side=tk.LEFT)
         self.search_var = tk.StringVar()
         search_entry = tk.Entry(search_frame, textvariable=self.search_var)
-        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6)
         search_entry.bind('<KeyRelease>', lambda e: self._filter_titles())
 
+        # List of titles with scrollbars (no border to avoid dark line)
         list_frame = tk.Frame(left)
-        list_frame.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 4))
         self.listbox = tk.Listbox(list_frame, selectmode=tk.SINGLE, activestyle='none')
         ysb = ttk.Scrollbar(list_frame, orient='vertical', command=self.listbox.yview)
         xsb = ttk.Scrollbar(list_frame, orient='horizontal', command=self.listbox.xview)
@@ -52,19 +60,25 @@ class ReferendumExplorerApp:
         list_frame.columnconfigure(0, weight=1)
         self.listbox.bind('<<ListboxSelect>>', self._on_select_title)
 
+        # Extra vertical spacing before buttons (removed separator to avoid dark line)
+        tk.Frame(left, height=6).pack(fill=tk.X, padx=10, pady=(4, 2))
+
+        # Buttons
         btn_frame = tk.Frame(left)
-        btn_frame.pack(fill=tk.X, padx=6, pady=4)
-        tk.Button(btn_frame, text="Export GeoJSON", command=self._export_current).pack(side=tk.LEFT, padx=4)
-        tk.Button(btn_frame, text="Refresh", command=self._refresh_current).pack(side=tk.LEFT, padx=4)
+        btn_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        tk.Button(btn_frame, text="Export GeoJSON", command=self._export_current).pack(side=tk.LEFT, padx=6, pady=4)
+        tk.Button(btn_frame, text="Export PNG", command=self._export_png).pack(side=tk.LEFT, padx=6, pady=4)
+        tk.Button(btn_frame, text="Refresh", command=self._refresh_current).pack(side=tk.LEFT, padx=6, pady=4)
 
+        # Status label
         self.status_var = tk.StringVar(value="Loading…")
-        tk.Label(left, textvariable=self.status_var, anchor='w').pack(fill=tk.X, padx=6, pady=4)
+        tk.Label(left, textvariable=self.status_var, anchor='w').pack(fill=tk.X, padx=10, pady=(0, 8))
 
+        # Right figure area
         right = tk.Frame(self.root)
         right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
-        self.fig = plt.Figure(figsize=(7,7), constrained_layout=False)
-
+        self.fig = plt.Figure(figsize=(7.5,7.5), constrained_layout=False)
         self.ax = self.fig.add_axes([0.02, 0.02, 0.78, 0.96])
         self.cax = self.fig.add_axes([0.82, 0.15, 0.03, 0.7])
         self.canvas = FigureCanvasTkAgg(self.fig, master=right)
@@ -86,7 +100,7 @@ class ReferendumExplorerApp:
             self.raw_votes = raw
             self.titles = titles
             self._populate_titles(titles)
-            self.status_var.set(f"Loaded {len(titles)} referendums. Select one.")
+            self.status_var.set(f"Loaded {len(titles)} referendums.")
         except Exception as e:
             self.status_var.set(f"Error loading data: {e}")
 
@@ -156,18 +170,52 @@ class ReferendumExplorerApp:
         self.canvas.draw()
 
     def _export_current(self):
+        """Export current merged GeoDataFrame as GeoJSON (prompt for location)."""
         if not self.listbox.curselection():
+            self.status_var.set("Select a title first")
             return
         title = self.listbox.get(self.listbox.curselection()[0])
         if title not in self.cache:
-            self.status_var.set("Nothing to export yet (select first)")
+            self.status_var.set("Nothing to export yet (render first)")
             return
-        out_name = 'kantone_votes.geojson'
+        path = filedialog.asksaveasfilename(
+            defaultextension=".geojson",
+            filetypes=[("GeoJSON", "*.geojson"), ("All files", "*.*")],
+            title="Save GeoJSON"
+        )
+        if not path:
+            self.status_var.set("Export cancelled")
+            return
         try:
-            main.export_geojson(self.cache[title], path=out_name)
-            self.status_var.set(f"Exported {out_name}")
+            main.export_geojson(self.cache[title], path=path)
+            self.status_var.set(f"Exported {path}")
         except Exception as e:
             self.status_var.set(f"Export failed: {e}")
+
+    def _export_png(self):
+        """Export the currently displayed figure as a PNG image."""
+        if not self.listbox.curselection():
+            self.status_var.set("Select a title first")
+            return
+        title = self.listbox.get(self.listbox.curselection()[0])
+        if title not in self.cache:
+            self.status_var.set("Nothing to export yet (render first)")
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=[("PNG Image", "*.png"), ("All files", "*.*")],
+            title="Save Map as PNG"
+        )
+        if not path:
+            self.status_var.set("PNG export cancelled")
+            return
+        try:
+            # Ensure latest rendering state
+            self.canvas.draw()
+            self.fig.savefig(path, dpi=200, bbox_inches='tight')
+            self.status_var.set(f"PNG saved: {path}")
+        except Exception as e:
+            self.status_var.set(f"PNG export failed: {e}")
 
     def _refresh_current(self):
         if not self.listbox.curselection():
