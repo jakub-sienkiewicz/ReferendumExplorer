@@ -53,10 +53,9 @@ python tk_app.py
 
 Features:
 - Search box filters referendum titles instantly.
-- Selection renders canton YES% choropleth (0–100, RdYlGn).
-- Export GeoJSON (choose path) with YES/NO/TOTAL/YES_PCT.
-- Export PNG (choose path, 200 DPI) of current figure.
-- Refresh button invalidates cache for the selected title.
+- Selection renders canton YES% choropleth.
+- Export GeoJSON file of current figure.
+- Export PNG file of current figure.
 
 ## Command-Line Usage
 
